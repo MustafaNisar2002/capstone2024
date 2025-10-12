@@ -76,20 +76,44 @@ function make_sfg(elements) {
         container: document.getElementById('cy'),
 
         layout: {
-            name: 'dagre',
-            nodeSep: 200,
-            edgeSep: 200,
-            rankSep: 100,
-            rankDir: 'LR',
-            fit: true,
-            minLen: function( edge ){ return 2 } 
+            name: 'cose',  // Organic, force-directed layout for balloon-like appearance
+            idealEdgeLength: 120,  // Shorter edges for more compact layout
+            nodeOverlap: 30,  // Tighter spacing
+            refresh: 20,  // Refresh rate for simulation
+            fit: false,  // Don't auto-fit (prevents zooming)
+            padding: 40,  // Less padding for tighter view
+            randomize: false,  // Use existing positions if available
+            componentSpacing: 100,  // Closer components
+            nodeRepulsion: 6000,  // Less repulsion = more compact
+            edgeElasticity: 120,  // Stronger edge springs = tighter curves
+            nestingFactor: 1.2,  // Nesting strength for compound nodes
+            gravity: 100,  // Stronger gravity = more compact center
+            numIter: 1000,  // Number of iterations
+            initialTemp: 200,  // Initial temperature (for simulated annealing)
+            coolingFactor: 0.95,  // Cooling rate
+            minTemp: 1.0  // Minimum temperature
         },
-        wheelSensitivity: 0.4,
+        wheelSensitivity: 0.1,  // Reduced sensitivity for smoother zoom
+        minZoom: 0.5,  // Minimum zoom level
+        maxZoom: 2.0,  // Maximum zoom level
+        userZoomingEnabled: true,  // Allow user to zoom (set false to disable)
+        userPanningEnabled: true,  // Allow user to pan (set false to disable)
+        boxSelectionEnabled: false,  // Disable box selection for cleaner interaction
         style: [
         {
             selector: 'node[name]',
             style: {
-            'content': 'data(name)'
+                'content': 'data(name)',
+                'text-valign': 'center',
+                'text-halign': 'center',
+                'background-color': '#3498db',
+                'color': '#ffffff',
+                'font-size': '10px',
+                'font-weight': 'bold',
+                'width': '25px',
+                'height': '25px',
+                'border-width': '1.5px',
+                'border-color': '#2980b9'
             }
         },
 
@@ -103,13 +127,32 @@ function make_sfg(elements) {
         {
             selector: 'edge',
             style: {
-            'curve-style': 'unbundled-bezier',
-            'control-point-distance': '-40',
-            //'curve-style': 'bezier',
-            'target-arrow-shape': 'triangle',
-            'content': 'data(weight)',
-            'text-outline-width': '4',
-            'text-outline-color': '#E8E8E8'
+                'curve-style': 'unbundled-bezier',  // Allows more flexible curved edges
+                'control-point-distances': 40,  // Distance of control points from edge
+                'control-point-weights': 0.5,  // Position along edge (0-1)
+                'target-arrow-shape': 'triangle',
+                'arrow-scale': 1.2,  // Moderate arrow size
+                'width': 2,  // Thinner edges for cleaner look
+                'line-color': '#2c3e50',  // Dark blue-gray for edges
+                'target-arrow-color': '#2c3e50',
+                
+                // Edge label styling - COMPACT AND CLEAN
+                'content': 'data(weight)',
+                'font-size': '9px',  // Smaller font for less overlap
+                'font-weight': 'normal',  // Regular weight (not bold)
+                'color': '#2c3e50',
+                'text-rotation': 'autorotate',  // Rotates with edge
+                'text-margin-y': -8,  // Closer to edge but not overlapping
+                'text-background-color': '#ffffff',  // White background
+                'text-background-opacity': 0.95,  // More opaque for clarity
+                'text-background-padding': '2px',  // Tighter padding
+                'text-background-shape': 'roundrectangle',  // Rounded background
+                'text-border-width': 0.5,  // Thinner border
+                'text-border-color': '#bdc3c7',
+                'text-border-opacity': 0.5,
+                'text-outline-width': 0,
+                'min-zoomed-font-size': 6,  // Smaller minimum
+                'edge-text-rotation': 'autorotate'  // Ensure rotation
             }
         },
 
@@ -237,12 +280,40 @@ function make_sfg(elements) {
         elements: elements
     });
 
-    //make lines straight
-    cy.edges().forEach((edge,idx) => {
-        if((edge.sourceEndpoint().x === edge.targetEndpoint().x) || (edge.sourceEndpoint().y === edge.targetEndpoint().y) && edge.source().edgesWith(edge.target()).length === 1) {
-            edge.css({'control-point-distance': '0'})
+    // Add curvature to edges for organic appearance
+    cy.edges().forEach((edge, idx) => {
+        const source = edge.source();
+        const target = edge.target();
+        
+        // Self-loops (edges from node to itself) - make them curved and visible
+        if (source.id() === target.id()) {
+            edge.style({
+                'curve-style': 'bezier',
+                'control-point-distances': [80, -80],
+                'control-point-weights': [0.25, 0.75],
+                'loop-direction': '0deg',
+                'loop-sweep': '90deg'
+            });
         }
-
+        // Multiple edges between same nodes - offset them
+        else {
+            const parallelEdges = source.edgesWith(target);
+            if (parallelEdges.length > 1) {
+                // Multiple edges between same pair - curve them differently
+                const edgeIndex = parallelEdges.indexOf(edge);
+                const offset = (edgeIndex - (parallelEdges.length - 1) / 2) * 60;
+                edge.style({
+                    'curve-style': 'unbundled-bezier',
+                    'control-point-distances': offset,
+                    'control-point-weights': 0.5
+                });
+            } else {
+                // Single edge - use natural bezier curve
+                edge.style({
+                    'curve-style': 'bezier'
+                });
+            }
+        }
     });
 
     // log all nodes and edges of sfg
@@ -304,6 +375,126 @@ function make_sfg(elements) {
     // Initialize edge hover functionality
     initializeEdgeHover();
     
+    // ========== BOUNCE-BACK ANIMATIONS ==========
+    
+    // Zoom bounce-back animation
+    let zoomTimeout = null;
+    cy.on('zoom', function(evt) {
+        const currentZoom = cy.zoom();
+        const minZoom = 0.5;
+        const maxZoom = 2.0;
+        const bounceAmount = 0.05; // Amount to bounce back
+        
+        // Clear any existing timeout
+        if (zoomTimeout) {
+            clearTimeout(zoomTimeout);
+        }
+        
+        // Check if at zoom limits
+        if (currentZoom <= minZoom) {
+            zoomTimeout = setTimeout(function() {
+                cy.animate({
+                    zoom: minZoom + bounceAmount,
+                    duration: 200,
+                    easing: 'ease-out-cubic'
+                }).delay(50).animate({
+                    zoom: minZoom,
+                    duration: 150,
+                    easing: 'ease-in-out-cubic'
+                });
+            }, 100);
+        } else if (currentZoom >= maxZoom) {
+            zoomTimeout = setTimeout(function() {
+                cy.animate({
+                    zoom: maxZoom - bounceAmount,
+                    duration: 200,
+                    easing: 'ease-out-cubic'
+                }).delay(50).animate({
+                    zoom: maxZoom,
+                    duration: 150,
+                    easing: 'ease-in-out-cubic'
+                });
+            }, 100);
+        }
+    });
+    
+    // Pan bounce-back animation
+    let panTimeout = null;
+    let lastPan = { x: cy.pan().x, y: cy.pan().y };
+    
+    cy.on('pan', function(evt) {
+        const currentPan = cy.pan();
+        const extent = cy.extent();
+        const containerWidth = cy.width();
+        const containerHeight = cy.height();
+        
+        // Calculate graph bounds in rendered coordinates
+        const graphWidth = extent.w * cy.zoom();
+        const graphHeight = extent.h * cy.zoom();
+        const graphX1 = extent.x1 * cy.zoom() + currentPan.x;
+        const graphX2 = extent.x2 * cy.zoom() + currentPan.x;
+        const graphY1 = extent.y1 * cy.zoom() + currentPan.y;
+        const graphY2 = extent.y2 * cy.zoom() + currentPan.y;
+        
+        // Define bounds (allow 20% of graph to go outside)
+        const marginPercent = 0.2;
+        const marginX = graphWidth * marginPercent;
+        const marginY = graphHeight * marginPercent;
+        
+        let needsBounce = false;
+        let targetPan = { x: currentPan.x, y: currentPan.y };
+        
+        // Check if dragged too far left
+        if (graphX2 < marginX) {
+            targetPan.x = marginX - graphWidth + currentPan.x - graphX2;
+            needsBounce = true;
+        }
+        // Check if dragged too far right
+        else if (graphX1 > containerWidth - marginX) {
+            targetPan.x = containerWidth - marginX + currentPan.x - graphX1;
+            needsBounce = true;
+        }
+        
+        // Check if dragged too far up
+        if (graphY2 < marginY) {
+            targetPan.y = marginY - graphHeight + currentPan.y - graphY2;
+            needsBounce = true;
+        }
+        // Check if dragged too far down
+        else if (graphY1 > containerHeight - marginY) {
+            targetPan.y = containerHeight - marginY + currentPan.y - graphY1;
+            needsBounce = true;
+        }
+        
+        // Apply bounce-back animation if needed
+        if (needsBounce) {
+            if (panTimeout) {
+                clearTimeout(panTimeout);
+            }
+            
+            panTimeout = setTimeout(function() {
+                // Calculate overshoot position (10% past target)
+                const overshootX = targetPan.x + (targetPan.x - currentPan.x) * 0.1;
+                const overshootY = targetPan.y + (targetPan.y - currentPan.y) * 0.1;
+                
+                // Animate with bounce effect
+                cy.animate({
+                    pan: { x: overshootX, y: overshootY },
+                    duration: 200,
+                    easing: 'ease-out-cubic'
+                }).delay(50).animate({
+                    pan: targetPan,
+                    duration: 150,
+                    easing: 'ease-in-out-cubic'
+                });
+            }, 100);
+        }
+        
+        lastPan = currentPan;
+    });
+    
+    // ========== END BOUNCE-BACK ANIMATIONS ==========
+    
     const time2 = new Date();
     let time_elapse = (time2 - time1)/1000;
     console.log("elements:", elements);
@@ -352,33 +543,177 @@ function renderOverlay(data, curr_elements) {
         container: sfgLayer,
         elements: curr_elements, 
         layout: {
-            name: 'dagre',
-            nodeSep: 200,
-            edgeSep: 200,
-            rankSep: 100,
-            rankDir: 'LR'
+            name: 'cose',  // Match main SFG layout
+            idealEdgeLength: 120,
+            nodeOverlap: 30,
+            refresh: 20,
+            fit: false,
+            padding: 40,
+            randomize: false,
+            componentSpacing: 100,
+            nodeRepulsion: 6000,
+            edgeElasticity: 120,
+            nestingFactor: 1.2,
+            gravity: 100,
+            numIter: 1000,
+            initialTemp: 200,
+            coolingFactor: 0.95,
+            minTemp: 1.0
         },
+        wheelSensitivity: 0.1,
+        minZoom: 0.5,
+        maxZoom: 2.0,
+        userZoomingEnabled: true,
+        userPanningEnabled: true,
+        boxSelectionEnabled: false,
         style: [
             {
                 selector: 'node',
                 style: {
-                    'background-color': '#007bff',
+                    'background-color': '#3498db',
                     'label': 'data(name)',
-                    'font-size': '10px'
+                    'font-size': '9px',
+                    'font-weight': 'bold',
+                    'color': '#ffffff',
+                    'text-valign': 'center',
+                    'text-halign': 'center',
+                    'width': '22px',
+                    'height': '22px',
+                    'border-width': '1.5px',
+                    'border-color': '#2980b9'
                 }
             },
             {
                 selector: 'edge',
                 style: {
                     'width': 2,
-                    'line-color': '#888',
+                    'line-color': '#2c3e50',
                     'target-arrow-shape': 'triangle',
-                    'arrow-scale': 1.5,
-                    'curve-style': 'bezier'
+                    'arrow-scale': 1.2,
+                    'target-arrow-color': '#2c3e50',
+                    'curve-style': 'unbundled-bezier',  // Match main SFG for curves
+                    'control-point-distances': 40,
+                    'control-point-weights': 0.5,
+                    'content': 'data(weight)',
+                    'font-size': '8px',
+                    'font-weight': 'normal',
+                    'color': '#2c3e50',
+                    'text-rotation': 'autorotate',
+                    'text-margin-y': -7,
+                    'text-background-color': '#ffffff',
+                    'text-background-opacity': 0.95,
+                    'text-background-padding': '2px',
+                    'text-background-shape': 'roundrectangle',
+                    'text-border-width': 0.5,
+                    'text-border-color': '#bdc3c7',
+                    'text-border-opacity': 0.5
                 }
             }
         ]
     });
+
+    // ========== BOUNCE-BACK ANIMATIONS FOR OVERLAY ==========
+    
+    // Zoom bounce-back animation
+    let overlayZoomTimeout = null;
+    cy.on('zoom', function(evt) {
+        const currentZoom = cy.zoom();
+        const minZoom = 0.5;
+        const maxZoom = 2.0;
+        const bounceAmount = 0.05;
+        
+        if (overlayZoomTimeout) {
+            clearTimeout(overlayZoomTimeout);
+        }
+        
+        if (currentZoom <= minZoom) {
+            overlayZoomTimeout = setTimeout(function() {
+                cy.animate({
+                    zoom: minZoom + bounceAmount,
+                    duration: 200,
+                    easing: 'ease-out-cubic'
+                }).delay(50).animate({
+                    zoom: minZoom,
+                    duration: 150,
+                    easing: 'ease-in-out-cubic'
+                });
+            }, 100);
+        } else if (currentZoom >= maxZoom) {
+            overlayZoomTimeout = setTimeout(function() {
+                cy.animate({
+                    zoom: maxZoom - bounceAmount,
+                    duration: 200,
+                    easing: 'ease-out-cubic'
+                }).delay(50).animate({
+                    zoom: maxZoom,
+                    duration: 150,
+                    easing: 'ease-in-out-cubic'
+                });
+            }, 100);
+        }
+    });
+    
+    // Pan bounce-back animation
+    let overlayPanTimeout = null;
+    cy.on('pan', function(evt) {
+        const currentPan = cy.pan();
+        const extent = cy.extent();
+        const containerWidth = cy.width();
+        const containerHeight = cy.height();
+        
+        const graphWidth = extent.w * cy.zoom();
+        const graphHeight = extent.h * cy.zoom();
+        const graphX1 = extent.x1 * cy.zoom() + currentPan.x;
+        const graphX2 = extent.x2 * cy.zoom() + currentPan.x;
+        const graphY1 = extent.y1 * cy.zoom() + currentPan.y;
+        const graphY2 = extent.y2 * cy.zoom() + currentPan.y;
+        
+        const marginPercent = 0.2;
+        const marginX = graphWidth * marginPercent;
+        const marginY = graphHeight * marginPercent;
+        
+        let needsBounce = false;
+        let targetPan = { x: currentPan.x, y: currentPan.y };
+        
+        if (graphX2 < marginX) {
+            targetPan.x = marginX - graphWidth + currentPan.x - graphX2;
+            needsBounce = true;
+        } else if (graphX1 > containerWidth - marginX) {
+            targetPan.x = containerWidth - marginX + currentPan.x - graphX1;
+            needsBounce = true;
+        }
+        
+        if (graphY2 < marginY) {
+            targetPan.y = marginY - graphHeight + currentPan.y - graphY2;
+            needsBounce = true;
+        } else if (graphY1 > containerHeight - marginY) {
+            targetPan.y = containerHeight - marginY + currentPan.y - graphY1;
+            needsBounce = true;
+        }
+        
+        if (needsBounce) {
+            if (overlayPanTimeout) {
+                clearTimeout(overlayPanTimeout);
+            }
+            
+            overlayPanTimeout = setTimeout(function() {
+                const overshootX = targetPan.x + (targetPan.x - currentPan.x) * 0.1;
+                const overshootY = targetPan.y + (targetPan.y - currentPan.y) * 0.1;
+                
+                cy.animate({
+                    pan: { x: overshootX, y: overshootY },
+                    duration: 200,
+                    easing: 'ease-out-cubic'
+                }).delay(50).animate({
+                    pan: targetPan,
+                    duration: 150,
+                    easing: 'ease-in-out-cubic'
+                });
+            }, 100);
+        }
+    });
+    
+    // ========== END BOUNCE-BACK ANIMATIONS FOR OVERLAY ==========
 
     alignLayers(svgLayer, sfgLayer);
 
