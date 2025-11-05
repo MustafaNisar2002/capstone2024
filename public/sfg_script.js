@@ -8,9 +8,11 @@ let [highlight_mode, hlt_src, hlt_tgt] = [false, null, null];
 let stack_len = 0
 let redo_len = 0
 
-const MIN_CURVE_DISTANCE = 24;
-const MAX_CURVE_DISTANCE = 240;
-const CURVE_DISTANCE_SCALE = 0.35;
+const MIN_CURVE_DISTANCE = 6;
+const MAX_CURVE_DISTANCE = 380;
+const CURVE_DISTANCE_SCALE = 0.85;
+const CURVE_DISTANCE_REFERENCE = 220;
+const MIN_CURVE_FACTOR = 0.08;
 const LABEL_VERTICAL_OFFSET = 18;
 const LABEL_HORIZONTAL_OFFSET = 12;
 
@@ -50,31 +52,61 @@ function getEdgeCurvature(edge) {
     const targetPosition = edge.target().position();
     const dx = targetPosition.x - sourcePosition.x;
     const dy = targetPosition.y - sourcePosition.y;
-    const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+    const distance = Math.sqrt(dx * dx + dy * dy);
 
-    const curvature = clamp(distance * CURVE_DISTANCE_SCALE, MIN_CURVE_DISTANCE, MAX_CURVE_DISTANCE);
+    if (!distance) {
+        return {
+            distance: 0,
+            weight: 0.5,
+        };
+    }
 
-    // bias the curve so that the edge balloons away from the graph centre
+    const curvatureMagnitude = clamp(
+        distance * CURVE_DISTANCE_SCALE,
+        MIN_CURVE_DISTANCE,
+        MAX_CURVE_DISTANCE
+    );
+
+    const closenessFactor = clamp(
+        distance / CURVE_DISTANCE_REFERENCE,
+        MIN_CURVE_FACTOR,
+        1
+    );
+
     const centroid = getGraphCentroid(edge.cy());
     const midpoint = {
         x: (sourcePosition.x + targetPosition.x) / 2,
         y: (sourcePosition.y + targetPosition.y) / 2,
     };
-    const directionX = midpoint.x >= centroid.x ? 1 : -1;
-    const directionY = midpoint.y >= centroid.y ? 1 : -1;
 
-    // favour vertical movement so long horizontal edges still balloon upwards
-    const direction = Math.abs(dx) > Math.abs(dy) ? -directionY : directionX;
+    const perpendicular = {
+        x: -dy / distance,
+        y: dx / distance,
+    };
 
-    return curvature * direction;
+    const centroidDirection = {
+        x: centroid.x - midpoint.x,
+        y: centroid.y - midpoint.y,
+    };
+
+    const orientation =
+        perpendicular.x * centroidDirection.x +
+        perpendicular.y * centroidDirection.y;
+    const direction = orientation >= 0 ? -1 : 1;
+
+    return {
+        distance: curvatureMagnitude * closenessFactor * direction,
+        weight: clamp(0.45 + closenessFactor * 0.35, 0.45, 0.8),
+    };
 }
 
 function updateEdgeCurvature(edge) {
     if (edge.source().id() === edge.target().id()) {
         edge.style({
-            'loop-direction': '-90deg',
-            'loop-sweep': '200deg',
-            'control-point-distance': MAX_CURVE_DISTANCE / 2,
+            'loop-direction': '-70deg',
+            'loop-sweep': '320deg',
+            'control-point-distance': MAX_CURVE_DISTANCE / 1.8,
+            'control-point-weight': 0.65,
         });
         return;
     }
@@ -93,10 +125,10 @@ function updateEdgeCurvature(edge) {
         return;
     }
 
-    const controlDistance = getEdgeCurvature(edge);
+    const curvature = getEdgeCurvature(edge);
     edge.style({
-        'control-point-distance': controlDistance,
-        'control-point-weight': 0.5,
+        'control-point-distance': curvature.distance,
+        'control-point-weight': curvature.weight,
     });
 }
 
@@ -213,55 +245,66 @@ function make_sfg(elements) {
             selector: 'node[name]',
             style: {
             'content': 'data(name)',
-            'background-color': '#f1faee',
-            'border-color': '#1d3557',
-            'border-width': 2,
-            'shape': 'round-rectangle',
-            'padding': '12px',
-            'font-size': 16,
+            'background-color': '#d4f3d7',
+            'border-color': '#1d5a9c',
+            'border-width': 3,
+            'shape': 'ellipse',
+            'width': 46,
+            'height': 46,
+            'font-size': 18,
             'font-weight': 600,
-            'color': '#1d3557',
-            'text-background-color': '#ffffff',
-            'text-background-opacity': 0.85,
-            'text-background-padding': 6,
-            'text-background-shape': 'roundrectangle',
+            'font-family': '"Segoe UI", "Nunito", sans-serif',
+            'color': '#11314a',
+            'text-outline-width': 3,
+            'text-outline-color': '#ffffff',
+            'text-background-opacity': 0,
             'text-wrap': 'wrap',
-            'text-max-width': '120px'
+            'text-max-width': '140px',
+            'transition-property': 'background-color, border-color, width, height',
+            'transition-duration': '0.2s'
             }
         },
 
         {
             selector: 'node[Vin]',
             style: {
-            'background-color': '#e63946',
-            'border-color': '#e63946',
+            'background-color': '#f0624d',
+            'border-color': '#d94b3d',
             'color': '#ffffff',
-            'text-background-color': '#e63946',
-            'text-background-opacity': 0.95,
-            'text-background-padding': 6
+            'text-outline-width': 3,
+            'text-outline-color': '#f0624d'
+            }
+        },
+
+        {
+            selector: 'node[name = "Vout"], node[Vout]',
+            style: {
+            'background-color': '#ffd166',
+            'border-color': '#f0a500',
+            'color': '#b7410e',
+            'text-outline-width': 3,
+            'text-outline-color': '#ffd166'
             }
         },
 
         {
             selector: 'edge',
             style: {
-            'width': 3,
+            'width': 4,
             'curve-style': 'unbundled-bezier',
             'target-arrow-shape': 'triangle',
-            'arrow-scale': 1.2,
-            'line-color': '#457b9d',
-            'target-arrow-color': '#457b9d',
+            'arrow-scale': 1.15,
+            'line-color': '#1f4f91',
+            'line-cap': 'round',
+            'target-arrow-color': '#1f4f91',
             'content': 'data(weight)',
-            'font-size': 14,
-            'font-weight': 500,
-            'color': '#1d3557',
-            'text-background-color': '#ffffff',
-            'text-background-opacity': 0.9,
-            'text-background-padding': 4,
-            'text-border-width': 1,
-            'text-border-color': '#457b9d',
-            'text-background-shape': 'roundrectangle',
-            'text-margin-y': -12,
+            'font-size': 16,
+            'font-weight': 600,
+            'font-family': '"Segoe UI", "Nunito", sans-serif',
+            'color': '#0f2740',
+            'text-outline-width': 3,
+            'text-outline-color': '#ffffff',
+            'text-background-opacity': 0,
             'text-wrap': 'wrap',
             'edge-text-rotation': 'autorotate'
             }
