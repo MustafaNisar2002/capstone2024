@@ -21,6 +21,113 @@ let edge_symbolic_label;
 let transfer_bode_plot_history = [];
 let loop_gain_bode_plot_history = [];
 
+const baseGraphStyles = (window.sfgOverlay && typeof window.sfgOverlay.getBaseStyles === 'function')
+    ? window.sfgOverlay.getBaseStyles()
+    : [
+        {
+            selector: 'node',
+            style: {
+                'shape': 'round-rectangle',
+                'background-color': '#ffffff',
+                'border-width': 2,
+                'border-color': '#3f83f8',
+                'padding': '12px',
+                'width': 'label',
+                'height': 'label',
+                'label': 'data(name)',
+                'color': '#1f2937',
+                'font-size': '16px',
+                'font-weight': '600',
+                'text-valign': 'center',
+                'text-halign': 'center',
+                'text-wrap': 'wrap',
+                'text-max-width': 140,
+                'shadow-blur': 18,
+                'shadow-color': 'rgba(63, 131, 248, 0.25)',
+                'shadow-opacity': 1
+            }
+        },
+        {
+            selector: 'edge',
+            style: {
+                'curve-style': 'unbundled-bezier',
+                'control-point-distance': 80,
+                'control-point-weight': 0.2,
+                'width': 2.5,
+                'line-color': '#6b7280',
+                'target-arrow-shape': 'triangle',
+                'target-arrow-color': '#6b7280',
+                'arrow-scale': 1.2,
+                'content': 'data(weight)',
+                'font-size': '12px',
+                'color': '#1f2937',
+                'text-rotation': 'autorotate',
+                'text-margin-y': '-16px',
+                'text-background-color': '#ffffff',
+                'text-background-opacity': 0.85,
+                'text-background-padding': '4px',
+                'text-background-shape': 'roundrectangle',
+                'text-wrap': 'wrap',
+                'text-max-width': 160,
+                'min-zoomed-font-size': 8
+            }
+        }
+    ];
+
+function getSfgLayoutOptions(overrides) {
+    if (window.sfgOverlay && typeof window.sfgOverlay.getLayoutOptions === 'function') {
+        return window.sfgOverlay.getLayoutOptions(Object.assign({ animate: false }, overrides));
+    }
+
+    const defaults = {
+        name: 'cose',
+        animate: false,
+        fit: true,
+        padding: 80,
+        nodeDimensionsIncludeLabels: true,
+        randomize: false,
+        componentSpacing: 160,
+        nodeRepulsion: 900000,
+        idealEdgeLength: 220,
+        edgeElasticity: 150,
+        gravity: 80,
+        numIter: 1000,
+        initialTemp: 200,
+        coolingFactor: 0.95,
+        minTemp: 1.2
+    };
+
+    return Object.assign(defaults, overrides || {});
+}
+
+function scheduleOverlayRender(cyInstance, svgMarkup, elements) {
+    if (!window.sfgOverlay || !cyInstance) {
+        return;
+    }
+
+    let overlayRendered = false;
+
+    const render = () => {
+        if (overlayRendered) {
+            return;
+        }
+        overlayRendered = true;
+        const nodePositions = {};
+        cyInstance.nodes().forEach((node) => {
+            const position = node.position();
+            nodePositions[node.id()] = { x: position.x, y: position.y };
+        });
+        window.sfgOverlay.render({
+            svgMarkup,
+            elements,
+            nodePositions
+        });
+    };
+
+    cyInstance.one('layoutstop', render);
+    setTimeout(render, 500);
+}
+
 // Function to convert float to exponential
 function expo(x, f) {
   return Number.parseFloat(x).toExponential(f);
@@ -72,168 +179,142 @@ function edge_helper(sample_data, flag) {
 const time1 = new Date()
 
 function make_sfg(elements) {
-    var cy = window.cy = cytoscape({
-        container: document.getElementById('cy'),
-
-        layout: {
-            name: 'dagre',
-            nodeSep: 200,
-            edgeSep: 200,
-            rankSep: 100,
-            rankDir: 'LR',
-            fit: true,
-            minLen: function( edge ){ return 2 } 
-        },
-        wheelSensitivity: 0.4,
-        style: [
-        {
-            selector: 'node[name]',
-            style: {
-            'content': 'data(name)'
-            }
-        },
-
+    const highlightStyles = [
         {
             selector: 'node[Vin]',
             style: {
-            'background-color': 'red',
+                'border-color': '#ef4444',
+                'border-width': 3,
+                'background-color': '#fee2e2',
+                'color': '#b91c1c'
             }
         },
-
-        {
-            selector: 'edge',
-            style: {
-            'curve-style': 'unbundled-bezier',
-            'control-point-distance': '-40',
-            //'curve-style': 'bezier',
-            'target-arrow-shape': 'triangle',
-            'content': 'data(weight)',
-            'text-outline-width': '4',
-            'text-outline-color': '#E8E8E8'
-            }
-        },
-
         {
             selector: '.eh-handle',
             style: {
-            'background-color': 'red',
-            'width': 12,
-            'height': 12,
-            'shape': 'ellipse',
-            'overlay-opacity': 0,
-            'border-width': 12, // makes the handle easier to hit
-            'border-opacity': 0
+                'background-color': 'red',
+                'width': 12,
+                'height': 12,
+                'shape': 'ellipse',
+                'overlay-opacity': 0,
+                'border-width': 12,
+                'border-opacity': 0
             }
         },
-
         {
             selector: '.eh-hover',
             style: {
-            'background-color': 'red'
+                'background-color': 'red'
             }
         },
-
         {
             selector: '.eh-source',
             style: {
-            'border-width': 2,
-            'border-color': 'red'
+                'border-width': 2,
+                'border-color': 'red'
             }
         },
-
         {
             selector: '.eh-target',
             style: {
-            'border-width': 2,
-            'border-color': 'red'
+                'border-width': 2,
+                'border-color': 'red'
             }
         },
-
         {
             selector: '.eh-preview, .eh-ghost-edge',
             style: {
-            'background-color': 'red',
-            'line-color': 'red',
-            'target-arrow-color': 'red',
-            'source-arrow-color': 'red'
+                'background-color': 'red',
+                'line-color': 'red',
+                'target-arrow-color': 'red',
+                'source-arrow-color': 'red'
             }
         },
-
         {
             selector: '.eh-ghost-edge.eh-preview-active',
             style: {
-            'opacity': 0
+                'opacity': 0
             }
         },
         {
             selector: ':selected',
             style: {
-                'background-color': '#0069d9'
+                'background-color': '#3f83f8',
+                'line-color': '#3f83f8',
+                'target-arrow-color': '#3f83f8'
+            }
+        },
+        {
+            selector: '.highlighted',
+            style: {
+                'background-color': '#ef4444',
+                'line-color': '#ef4444',
+                'target-arrow-color': '#ef4444',
+                'transition-property': 'background-color, line-color, target-arrow-color',
+                'transition-duration': '0.1s'
+            }
+        },
+        {
+            selector: '.cycle',
+            style: {
+                'background-color': '#2563eb',
+                'line-color': '#2563eb',
+                'target-arrow-color': '#2563eb',
+                'transition-property': 'background-color, line-color, target-arrow-color',
+                'transition-duration': '0.1s'
+            }
+        },
+        {
+            selector: '.weak_path',
+            style: {
+                'background-color': '#facc15',
+                'line-color': '#facc15',
+                'target-arrow-color': '#facc15',
+                'transition-property': 'background-color, line-color, target-arrow-color',
+                'transition-duration': '0.1s'
+            }
+        },
+        {
+            selector: '.common_edge',
+            style: {
+                'background-color': '#8b5cf6',
+                'line-color': '#8b5cf6',
+                'target-arrow-color': '#8b5cf6',
+                'transition-property': 'background-color, line-color, target-arrow-color',
+                'transition-duration': '0.1s'
+            }
+        },
+        {
+            selector: '.pink',
+            style: {
+                'background-color': '#f472b6',
+                'line-color': '#f472b6',
+                'target-arrow-color': '#f472b6',
+                'transition-property': 'background-color, line-color, target-arrow-color',
+                'transition-duration': '0.1s'
+            }
+        },
+        {
+            selector: '.green',
+            style: {
+                'background-color': '#34d399',
+                'line-color': '#34d399',
+                'target-arrow-color': '#34d399',
+                'transition-property': 'background-color, line-color, target-arrow-color',
+                'transition-duration': '0.1s'
             }
         }
-        ,
-        {   // Style for the most dominant path
-            selector: '.highlighted',
-              style: {
-                'background-color': 'red',
-                'line-color': 'red',
-                'target-arrow-color': 'red',
-                'transition-property': 'background-color, line-color, target-arrow-color',
-                'transition-duration': '0.1s'
-              }
-        },
+    ];
 
-        {   // Style for cycles within the path
-            selector: '.cycle',
-              style: {
-                'background-color': 'blue',
-                'line-color': 'blue',
-                'target-arrow-color': 'blue',
-                'transition-property': 'background-color, line-color, target-arrow-color',
-                'transition-duration': '0.1s'
-              }
-        },
-        {   // Style for the weakest path
-            selector: '.weak_path',
-              style: {
-                'background-color': 'yellow',
-                'line-color': 'yellow',
-                'target-arrow-color': 'yellow',
-                'transition-property': 'background-color, line-color, target-arrow-color',
-                'transition-duration': '0.1s'
-              }
-        },
-        {   // Style for the common edges
-            selector: '.common_edge',
-              style: {
-                'background-color': 'purple',
-                'line-color': 'purple',
-                'target-arrow-color': 'purple',
-                'transition-property': 'background-color, line-color, target-arrow-color',
-                'transition-duration': '0.1s'
-              }
-        },
-        {   // Source Node for the Dominant path finder
-            selector: '.pink',
-              style: {
-                'background-color': '#d90069',
-                'line-color': '#d90069',
-                'target-arrow-color': '#d90069',
-                'transition-property': 'background-color, line-color, target-arrow-color',
-                'transition-duration': '0.1s'
-              }
-        },
-        {   // Target node for dominant path finder
-            selector: '.green',
-              style: {
-                'background-color': '#2E8B57',
-                'line-color': '#2E8B57',
-                'target-arrow-color': '#2E8B57',
-                'transition-property': 'background-color, line-color, target-arrow-color',
-                'transition-duration': '0.1s'
-              }
-        }
-        ],
+    const graphStyles = baseGraphStyles.concat(highlightStyles);
+
+    var cy = window.cy = cytoscape({
+        container: document.getElementById('cy'),
+        layout: getSfgLayoutOptions({ animate: false }),
+        userZoomingEnabled: false,
+        boxSelectionEnabled: false,
+        style: graphStyles,
+        wheelSensitivity: 0.2,
         elements: elements
     });
 
@@ -308,97 +389,7 @@ function make_sfg(elements) {
     let time_elapse = (time2 - time1)/1000;
     console.log("elements:", elements);
     console.log("make_sfg SFG loading time: " + time_elapse + " seconds");
-}
-
-
-//SCALING WORKING
-//ALIGNMENT NOT FULLY CORRECT
-
-function alignLayers(svgLayer, sfgLayer) {
-    const svgBounds = svgLayer.getBoundingClientRect();
-    const sfgBounds = sfgLayer.getBoundingClientRect();
-
-    const scaleX = sfgBounds.width / svgBounds.width;
-    const scaleY = sfgBounds.height / svgBounds.height;
-    const offsetX = sfgBounds.left - svgBounds.left;
-    const offsetY = sfgBounds.top - svgBounds.top;
-
-    svgLayer.style.transformOrigin = "top left";
-    svgLayer.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scaleX}, ${scaleY})`;
-
-    svgLayer.style.opacity = 0.5;
-    sfgLayer.style.opacity = 0.8;
-
-    console.log("SVG aligned with SFG:", { scaleX, scaleY, offsetX, offsetY });
-}
-
-
-
-function renderOverlay(data, curr_elements) {
-    const svgLayer = document.getElementById('svg-layer');
-    svgLayer.innerHTML = data.svg; 
-
-    // viewbox
-    const svgElement = svgLayer.querySelector('svg');
-    if (svgElement) {
-        const boundingBox = svgElement.getBBox(); 
-        const viewBoxValue = `${boundingBox.x} ${boundingBox.y} ${boundingBox.width} ${boundingBox.height}`;
-        svgElement.setAttribute('viewBox', viewBoxValue); 
-        console.log("Dynamic viewBox added:", viewBoxValue);
-    }
-
-    const sfgLayer = document.getElementById('sfg-layer');
-    const cy = cytoscape({
-        container: sfgLayer,
-        elements: curr_elements, 
-        layout: {
-            name: 'dagre',
-            nodeSep: 200,
-            edgeSep: 200,
-            rankSep: 100,
-            rankDir: 'LR'
-        },
-        style: [
-            {
-                selector: 'node',
-                style: {
-                    'background-color': '#007bff',
-                    'label': 'data(name)',
-                    'font-size': '10px'
-                }
-            },
-            {
-                selector: 'edge',
-                style: {
-                    'width': 2,
-                    'line-color': '#888',
-                    'target-arrow-shape': 'triangle',
-                    'arrow-scale': 1.5,
-                    'curve-style': 'bezier'
-                }
-            }
-        ]
-    });
-
-    alignLayers(svgLayer, sfgLayer);
-
-
-}
-
-
-let isSVGVisible = true; 
-
-function toggleSVG() {
-    const svgLayer = document.getElementById('svg-layer');
-
-    if (isSVGVisible) {
-        // hiding
-        svgLayer.style.display = 'none';
-    } else {
-        svgLayer.style.display = 'block';
-    }
-
-    isSVGVisible = !isSVGVisible;
+    return cy;
 }
 
 
@@ -1927,9 +1918,11 @@ function load_interface() {
 
 //Initialize frontend DOM tree
 function render_frontend(data) {
-    let curr_elements = edge_helper(data, symbolic_flag)
+    current_data = data;
+    let curr_elements = edge_helper(current_data, symbolic_flag)
     // load SFG panel
-    make_sfg(curr_elements)
+    const cyInstance = make_sfg(curr_elements)
+    scheduleOverlayRender(cyInstance, current_data.svg, curr_elements)
     // load parameter panel
     make_parameter_panel(data.parameters)
     // load schematic panel
@@ -1950,19 +1943,18 @@ function render_frontend(data) {
 
     // Frequency bounds form
     make_frequency_bounds()
-
-    // Render the overlay
-    renderOverlay(data, curr_elements); 
 }
 
 
 // Update SFG and parameter panel
 function update_frontend(data) {
-    let curr_elements = edge_helper(data, symbolic_flag)
+    current_data = Object.assign({}, current_data || {}, data)
+    let curr_elements = edge_helper(current_data, symbolic_flag)
     // load SFG panel
-    make_sfg(curr_elements)
+    const cyInstance = make_sfg(curr_elements)
+    scheduleOverlayRender(cyInstance, current_data.svg, curr_elements)
     // load parameter panel
-    make_parameter_panel(data.parameters)
+    make_parameter_panel(current_data.parameters)
 }
 
 

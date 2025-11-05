@@ -7,7 +7,16 @@ body {
     position: relative;
     z-index: 99;
     height: 600px;
-    width: 1200px;
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px;
+    box-sizing: border-box;
+    background: #f8fafc;
+    border: 1px solid #dbeafe;
+    border-radius: 18px;
+    box-shadow: 0 15px 35px rgba(15, 23, 42, 0.08);
+    overflow: hidden;
   }
 
   h1 {
@@ -330,7 +339,13 @@ $custom-range-thumb-disabled-bg: #adb5bd;
 #overlay-container {
   position: relative;
   width: 100%;
-  height: 500px; 
+  height: 500px;
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+  border-radius: 18px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  padding: 16px;
+  box-sizing: border-box;
 }
 
 #svg-layer {
@@ -339,7 +354,8 @@ $custom-range-thumb-disabled-bg: #adb5bd;
   left: 0;
   width: 100%;
   height: 100%;
-  opacity: 0.5; 
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 #sfg-layer {
@@ -348,6 +364,7 @@ $custom-range-thumb-disabled-bg: #adb5bd;
   left: 0;
   width: 100%;
   height: 100%;
+  pointer-events: none;
 }
 
 #toggle-button-container {
