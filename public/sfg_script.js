@@ -8,6 +8,235 @@ let [highlight_mode, hlt_src, hlt_tgt] = [false, null, null];
 let stack_len = 0
 let redo_len = 0
 
+const MIN_CURVE_DISTANCE = 18;
+const MAX_CURVE_DISTANCE = 420;
+const CURVE_DISTANCE_SCALE = 0.9;
+const CURVE_DISTANCE_REFERENCE = 260;
+const RADIAL_DISTANCE_REFERENCE = 220;
+const LABEL_VERTICAL_OFFSET = 24;
+const LABEL_HORIZONTAL_OFFSET = 18;
+const EDGE_LABEL_PERP_OFFSET = 26;
+const EDGE_LABEL_TANGENT_SPACING = 26;
+
+function getGraphCentroid(cy) {
+    const bounds = cy.nodes().boundingBox();
+    return {
+        x: bounds.x1 + bounds.w / 2,
+        y: bounds.y1 + bounds.h / 2,
+    };
+}
+
+function updateNodeLabelPlacement(cy, node) {
+    const centroid = getGraphCentroid(cy);
+    const position = node.position();
+
+    const horizontalIsRight = position.x >= centroid.x;
+    const verticalIsBelow = position.y >= centroid.y;
+
+    node.style({
+        'text-halign': horizontalIsRight ? 'left' : 'right',
+        'text-valign': 'center',
+        'text-margin-x': horizontalIsRight ? LABEL_HORIZONTAL_OFFSET : -LABEL_HORIZONTAL_OFFSET,
+        'text-margin-y': verticalIsBelow ? LABEL_VERTICAL_OFFSET : -LABEL_VERTICAL_OFFSET,
+    });
+}
+
+function refreshAllNodeLabelPlacement(cy) {
+    cy.nodes().forEach((node) => updateNodeLabelPlacement(cy, node));
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+function getEdgeCurvature(edge) {
+    const sourcePosition = edge.source().position();
+    const targetPosition = edge.target().position();
+    const dx = targetPosition.x - sourcePosition.x;
+    const dy = targetPosition.y - sourcePosition.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (!distance) {
+        return {
+            distance: MAX_CURVE_DISTANCE * 0.65,
+            weight: 0.55,
+        };
+    }
+
+    const curvatureMagnitude = clamp(
+        distance * CURVE_DISTANCE_SCALE,
+        MIN_CURVE_DISTANCE,
+        MAX_CURVE_DISTANCE
+    );
+
+    const centroid = getGraphCentroid(edge.cy());
+    const midpoint = {
+        x: (sourcePosition.x + targetPosition.x) / 2,
+        y: (sourcePosition.y + targetPosition.y) / 2,
+    };
+
+    const radial = {
+        x: midpoint.x - centroid.x,
+        y: midpoint.y - centroid.y,
+    };
+
+    const radialLength = Math.hypot(radial.x, radial.y);
+
+    const normalizedDistance = clamp(
+        distance / CURVE_DISTANCE_REFERENCE,
+        0,
+        1
+    );
+
+    const radialFactor = clamp(
+        radialLength / RADIAL_DISTANCE_REFERENCE,
+        0.6,
+        1.35
+    );
+
+    const distanceScale = 0.55 + normalizedDistance * 0.45;
+
+    const curvatureDistance = curvatureMagnitude * distanceScale * radialFactor;
+
+    const orientation =
+        dx * (centroid.y - sourcePosition.y) -
+        dy * (centroid.x - sourcePosition.x);
+
+    const direction = orientation > 0 ? -1 : 1;
+
+    return {
+        distance: curvatureDistance * direction,
+        weight: clamp(0.48 + normalizedDistance * 0.37, 0.5, 0.85),
+    };
+}
+
+function updateEdgeCurvature(edge) {
+    if (edge.source().id() === edge.target().id()) {
+        edge.style({
+            'loop-direction': '-70deg',
+            'loop-sweep': '320deg',
+            'control-point-distance': MAX_CURVE_DISTANCE / 1.8,
+            'control-point-weight': 0.65,
+        });
+        return;
+    }
+
+    const curvature = getEdgeCurvature(edge);
+    edge.style({
+        'control-point-distance': curvature.distance,
+        'control-point-weight': curvature.weight,
+    });
+}
+
+function refreshConnectedEdges(edgeCollection) {
+    edgeCollection.forEach(updateEdgeCurvature);
+}
+
+function refreshAllEdgeLabelPlacement(cy) {
+    const centroid = getGraphCentroid(cy);
+    const groups = new Map();
+
+    cy.edges().forEach((edge) => {
+        const key = `${edge.source().id()}->${edge.target().id()}`;
+        if (!groups.has(key)) {
+            groups.set(key, []);
+        }
+        groups.get(key).push(edge);
+    });
+
+    groups.forEach((edges) => {
+        edges.sort((a, b) => a.id().localeCompare(b.id()));
+        const total = edges.length;
+        edges.forEach((edge, index) => {
+            updateEdgeLabelPlacement(edge, index, total, centroid);
+        });
+    });
+}
+
+function updateEdgeLabelPlacement(edge, index, total, centroid) {
+    if (edge.source().id() === edge.target().id()) {
+        edge.style({
+            'text-margin-x': 0,
+            'text-margin-y': -EDGE_LABEL_PERP_OFFSET,
+        });
+        return;
+    }
+
+    const sourcePosition = edge.source().position();
+    const targetPosition = edge.target().position();
+
+    const midpoint = edge.midpoint
+        ? edge.midpoint()
+        : {
+              x: (sourcePosition.x + targetPosition.x) / 2,
+              y: (sourcePosition.y + targetPosition.y) / 2,
+          };
+
+    const dx = targetPosition.x - sourcePosition.x;
+    const dy = targetPosition.y - sourcePosition.y;
+    const length = Math.hypot(dx, dy) || 1;
+
+    const unit = {
+        x: dx / length,
+        y: dy / length,
+    };
+
+    const normal = {
+        x: -unit.y,
+        y: unit.x,
+    };
+
+    const radial = {
+        x: midpoint.x - centroid.x,
+        y: midpoint.y - centroid.y,
+    };
+
+    const dot = radial.x * normal.x + radial.y * normal.y;
+    const perpendicularOffset = (dot >= 0 ? 1 : -1) * EDGE_LABEL_PERP_OFFSET;
+
+    const tangentOffset =
+        total > 1
+            ? (index - (total - 1) / 2) * EDGE_LABEL_TANGENT_SPACING
+            : 0;
+
+    edge.style({
+        'text-margin-x': tangentOffset,
+        'text-margin-y': perpendicularOffset,
+    });
+}
+
+function setupDynamicStyling(cy) {
+    refreshAllNodeLabelPlacement(cy);
+    refreshConnectedEdges(cy.edges());
+    refreshAllEdgeLabelPlacement(cy);
+
+    cy.on('position', 'node', (event) => {
+        const movedNode = event.target;
+        updateNodeLabelPlacement(cy, movedNode);
+        refreshConnectedEdges(movedNode.connectedEdges());
+        refreshAllEdgeLabelPlacement(cy);
+    });
+
+    cy.on('resize', () => {
+        refreshAllNodeLabelPlacement(cy);
+        refreshConnectedEdges(cy.edges());
+        refreshAllEdgeLabelPlacement(cy);
+    });
+
+    cy.on('add', 'edge', (event) => {
+        const newEdge = event.target;
+        updateEdgeCurvature(newEdge);
+        refreshAllEdgeLabelPlacement(cy);
+    });
+
+    cy.on('add', 'node', (event) => {
+        const newNode = event.target;
+        updateNodeLabelPlacement(cy, newNode);
+        refreshConnectedEdges(newNode.connectedEdges());
+        refreshAllEdgeLabelPlacement(cy);
+    });
+}
+
 if (!circuitId) {
     window.location.replace('./landing.html');
 }
@@ -89,27 +318,68 @@ function make_sfg(elements) {
         {
             selector: 'node[name]',
             style: {
-            'content': 'data(name)'
+            'content': 'data(name)',
+            'background-color': '#eef4f7',
+            'border-color': '#7b90a6',
+            'border-width': 4,
+            'shape': 'round-rectangle',
+            'width': 58,
+            'height': 58,
+            'corner-radius': 8,
+            'font-size': 26,
+            'font-weight': 700,
+            'font-family': '"Segoe UI", "Nunito", sans-serif',
+            'color': '#324b64',
+            'text-outline-width': 5,
+            'text-outline-color': '#f8fbfd',
+            'text-background-opacity': 0,
+            'text-wrap': 'wrap',
+            'text-max-width': '160px',
+            'transition-property': 'background-color, border-color, width, height',
+            'transition-duration': '0.25s'
             }
         },
 
         {
             selector: 'node[Vin]',
             style: {
-            'background-color': 'red',
+            'background-color': '#f2f5df',
+            'border-color': '#b0b76d',
+            'color': '#5b5f2a',
+            'text-outline-color': '#f2f5df'
+            }
+        },
+
+        {
+            selector: 'node[name = "Vout"], node[Vout]',
+            style: {
+            'background-color': '#e5f1d1',
+            'border-color': '#8aa25b',
+            'color': '#3c5221',
+            'text-outline-color': '#e5f1d1'
             }
         },
 
         {
             selector: 'edge',
             style: {
+            'width': 3.5,
             'curve-style': 'unbundled-bezier',
-            'control-point-distance': '-40',
-            //'curve-style': 'bezier',
             'target-arrow-shape': 'triangle',
+            'arrow-scale': 1.1,
+            'line-color': '#274f78',
+            'line-cap': 'round',
+            'target-arrow-color': '#274f78',
             'content': 'data(weight)',
-            'text-outline-width': '4',
-            'text-outline-color': '#E8E8E8'
+            'font-size': 22,
+            'font-weight': 700,
+            'font-family': '"Segoe UI", "Nunito", sans-serif',
+            'color': '#1c3a59',
+            'text-outline-width': 5,
+            'text-outline-color': '#f8fbfd',
+            'text-background-opacity': 0,
+            'text-wrap': 'wrap',
+            'edge-text-rotation': 'autorotate'
             }
         },
 
@@ -237,13 +507,10 @@ function make_sfg(elements) {
         elements: elements
     });
 
-    //make lines straight
-    cy.edges().forEach((edge,idx) => {
-        if((edge.sourceEndpoint().x === edge.targetEndpoint().x) || (edge.sourceEndpoint().y === edge.targetEndpoint().y) && edge.source().edgesWith(edge.target()).length === 1) {
-            edge.css({'control-point-distance': '0'})
-        }
+    cy.autoungrabify(false);
+    cy.nodes().forEach((node) => node.grabbable(true));
 
-    });
+    setupDynamicStyling(cy);
 
     // log all nodes and edges of sfg
     console.log("nodes:", cy.nodes());
