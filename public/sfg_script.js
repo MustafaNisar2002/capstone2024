@@ -15,6 +15,8 @@ const CURVE_DISTANCE_REFERENCE = 260;
 const RADIAL_DISTANCE_REFERENCE = 220;
 const LABEL_VERTICAL_OFFSET = 24;
 const LABEL_HORIZONTAL_OFFSET = 18;
+const EDGE_LABEL_PERP_OFFSET = 26;
+const EDGE_LABEL_TANGENT_SPACING = 26;
 
 function getGraphCentroid(cy) {
     const bounds = cy.nodes().boundingBox();
@@ -130,30 +132,108 @@ function refreshConnectedEdges(edgeCollection) {
     edgeCollection.forEach(updateEdgeCurvature);
 }
 
+function refreshAllEdgeLabelPlacement(cy) {
+    const centroid = getGraphCentroid(cy);
+    const groups = new Map();
+
+    cy.edges().forEach((edge) => {
+        const key = `${edge.source().id()}->${edge.target().id()}`;
+        if (!groups.has(key)) {
+            groups.set(key, []);
+        }
+        groups.get(key).push(edge);
+    });
+
+    groups.forEach((edges) => {
+        edges.sort((a, b) => a.id().localeCompare(b.id()));
+        const total = edges.length;
+        edges.forEach((edge, index) => {
+            updateEdgeLabelPlacement(edge, index, total, centroid);
+        });
+    });
+}
+
+function updateEdgeLabelPlacement(edge, index, total, centroid) {
+    if (edge.source().id() === edge.target().id()) {
+        edge.style({
+            'text-margin-x': 0,
+            'text-margin-y': -EDGE_LABEL_PERP_OFFSET,
+        });
+        return;
+    }
+
+    const sourcePosition = edge.source().position();
+    const targetPosition = edge.target().position();
+
+    const midpoint = edge.midpoint
+        ? edge.midpoint()
+        : {
+              x: (sourcePosition.x + targetPosition.x) / 2,
+              y: (sourcePosition.y + targetPosition.y) / 2,
+          };
+
+    const dx = targetPosition.x - sourcePosition.x;
+    const dy = targetPosition.y - sourcePosition.y;
+    const length = Math.hypot(dx, dy) || 1;
+
+    const unit = {
+        x: dx / length,
+        y: dy / length,
+    };
+
+    const normal = {
+        x: -unit.y,
+        y: unit.x,
+    };
+
+    const radial = {
+        x: midpoint.x - centroid.x,
+        y: midpoint.y - centroid.y,
+    };
+
+    const dot = radial.x * normal.x + radial.y * normal.y;
+    const perpendicularOffset = (dot >= 0 ? 1 : -1) * EDGE_LABEL_PERP_OFFSET;
+
+    const tangentOffset =
+        total > 1
+            ? (index - (total - 1) / 2) * EDGE_LABEL_TANGENT_SPACING
+            : 0;
+
+    edge.style({
+        'text-margin-x': tangentOffset,
+        'text-margin-y': perpendicularOffset,
+    });
+}
+
 function setupDynamicStyling(cy) {
     refreshAllNodeLabelPlacement(cy);
     refreshConnectedEdges(cy.edges());
+    refreshAllEdgeLabelPlacement(cy);
 
     cy.on('position', 'node', (event) => {
         const movedNode = event.target;
         updateNodeLabelPlacement(cy, movedNode);
         refreshConnectedEdges(movedNode.connectedEdges());
+        refreshAllEdgeLabelPlacement(cy);
     });
 
     cy.on('resize', () => {
         refreshAllNodeLabelPlacement(cy);
         refreshConnectedEdges(cy.edges());
+        refreshAllEdgeLabelPlacement(cy);
     });
 
     cy.on('add', 'edge', (event) => {
         const newEdge = event.target;
         updateEdgeCurvature(newEdge);
+        refreshAllEdgeLabelPlacement(cy);
     });
 
     cy.on('add', 'node', (event) => {
         const newNode = event.target;
         updateNodeLabelPlacement(cy, newNode);
         refreshConnectedEdges(newNode.connectedEdges());
+        refreshAllEdgeLabelPlacement(cy);
     });
 }
 
