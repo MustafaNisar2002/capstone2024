@@ -1,0 +1,23 @@
+* /Users/kphang/Dropbox/Khoman/teaching/srprjs/srprj_SFG/srprj_SFG_2324/src/SigFlowGrapher/capstone/test_data/Sedra_Smith_Ex_10.4_2.asc
+M2 vout vd1 0 0 NMOS0P5 l=10u w=200u
+M1 vd1 vin vs1 vs1 NMOS0P5 l=10u w=200u
+V1 vin VDC1 PULSE(0 1m 0 1n 1n 300n 600n 3) AC 1
+R1 vs1 0 1k
+R2 vout vs1 9k
+RD1 n_VDD vd1 10k
+RD2 n_VDD vout 10k
+VDD n_VDD 0 22V
+I1 vs1 0 2.2222m
+VBias VDC1 0 2V
+C1 vd1 0 10p
+C2 vout 0 5p
+C3 vs1 0 1p
+.model NMOS NMOS
+.model PMOS PMOS
+.lib /Users/kphang/Library/Application Support/LTspice/lib/cmp/standard.mos
+* Sedra & Smith Example 10.4 (6th Edition)
+.model	NMOS0P5	NMOS(Level=1 VTO=1.0 KP=2E-4 LAMBDA=0.00001)
+.op
+;.tran 0 500n
+.backanno
+.end
