@@ -8,13 +8,13 @@ let [highlight_mode, hlt_src, hlt_tgt] = [false, null, null];
 let stack_len = 0
 let redo_len = 0
 
-const MIN_CURVE_DISTANCE = 6;
-const MAX_CURVE_DISTANCE = 380;
-const CURVE_DISTANCE_SCALE = 0.85;
-const CURVE_DISTANCE_REFERENCE = 220;
-const MIN_CURVE_FACTOR = 0.08;
-const LABEL_VERTICAL_OFFSET = 18;
-const LABEL_HORIZONTAL_OFFSET = 12;
+const MIN_CURVE_DISTANCE = 18;
+const MAX_CURVE_DISTANCE = 420;
+const CURVE_DISTANCE_SCALE = 0.9;
+const CURVE_DISTANCE_REFERENCE = 260;
+const RADIAL_DISTANCE_REFERENCE = 220;
+const LABEL_VERTICAL_OFFSET = 24;
+const LABEL_HORIZONTAL_OFFSET = 18;
 
 function getGraphCentroid(cy) {
     const bounds = cy.nodes().boundingBox();
@@ -56,8 +56,8 @@ function getEdgeCurvature(edge) {
 
     if (!distance) {
         return {
-            distance: 0,
-            weight: 0.5,
+            distance: MAX_CURVE_DISTANCE * 0.65,
+            weight: 0.55,
         };
     }
 
@@ -67,21 +67,10 @@ function getEdgeCurvature(edge) {
         MAX_CURVE_DISTANCE
     );
 
-    const closenessFactor = clamp(
-        distance / CURVE_DISTANCE_REFERENCE,
-        MIN_CURVE_FACTOR,
-        1
-    );
-
     const centroid = getGraphCentroid(edge.cy());
     const midpoint = {
         x: (sourcePosition.x + targetPosition.x) / 2,
         y: (sourcePosition.y + targetPosition.y) / 2,
-    };
-
-    const perpendicular = {
-        x: -dy / distance,
-        y: dx / distance,
     };
 
     const radial = {
@@ -90,35 +79,32 @@ function getEdgeCurvature(edge) {
     };
 
     const radialLength = Math.hypot(radial.x, radial.y);
-    let direction = 1;
 
-    if (radialLength > 1e-3) {
-        const radialNormalized = {
-            x: radial.x / radialLength,
-            y: radial.y / radialLength,
-        };
+    const normalizedDistance = clamp(
+        distance / CURVE_DISTANCE_REFERENCE,
+        0,
+        1
+    );
 
-        const radialAlignment =
-            radialNormalized.x * perpendicular.x +
-            radialNormalized.y * perpendicular.y;
+    const radialFactor = clamp(
+        radialLength / RADIAL_DISTANCE_REFERENCE,
+        0.6,
+        1.35
+    );
 
-        direction = radialAlignment >= 0 ? 1 : -1;
-    } else {
-        const centroidDirection = {
-            x: centroid.x - midpoint.x,
-            y: centroid.y - midpoint.y,
-        };
+    const distanceScale = 0.55 + normalizedDistance * 0.45;
 
-        const orientation =
-            perpendicular.x * centroidDirection.x +
-            perpendicular.y * centroidDirection.y;
+    const curvatureDistance = curvatureMagnitude * distanceScale * radialFactor;
 
-        direction = orientation >= 0 ? -1 : 1;
-    }
+    const orientation =
+        dx * (centroid.y - sourcePosition.y) -
+        dy * (centroid.x - sourcePosition.x);
+
+    const direction = orientation > 0 ? -1 : 1;
 
     return {
-        distance: curvatureMagnitude * closenessFactor * direction,
-        weight: clamp(0.45 + closenessFactor * 0.35, 0.45, 0.8),
+        distance: curvatureDistance * direction,
+        weight: clamp(0.48 + normalizedDistance * 0.37, 0.5, 0.85),
     };
 }
 
@@ -253,65 +239,64 @@ function make_sfg(elements) {
             selector: 'node[name]',
             style: {
             'content': 'data(name)',
-            'background-color': '#d4f3d7',
-            'border-color': '#1d5a9c',
-            'border-width': 3,
-            'shape': 'ellipse',
-            'width': 50,
-            'height': 50,
-            'font-size': 22,
-            'font-weight': 650,
+            'background-color': '#eef4f7',
+            'border-color': '#7b90a6',
+            'border-width': 4,
+            'shape': 'round-rectangle',
+            'width': 58,
+            'height': 58,
+            'corner-radius': 8,
+            'font-size': 26,
+            'font-weight': 700,
             'font-family': '"Segoe UI", "Nunito", sans-serif',
-            'color': '#11314a',
-            'text-outline-width': 4,
-            'text-outline-color': '#ffffff',
+            'color': '#324b64',
+            'text-outline-width': 5,
+            'text-outline-color': '#f8fbfd',
             'text-background-opacity': 0,
             'text-wrap': 'wrap',
-            'text-max-width': '140px',
+            'text-max-width': '160px',
             'transition-property': 'background-color, border-color, width, height',
-            'transition-duration': '0.2s'
+            'transition-duration': '0.25s'
             }
         },
 
         {
             selector: 'node[Vin]',
             style: {
-            'background-color': '#f0624d',
-            'border-color': '#d94b3d',
-            'color': '#ffffff',
-            'text-outline-width': 3,
-            'text-outline-color': '#f0624d'
+            'background-color': '#f2f5df',
+            'border-color': '#b0b76d',
+            'color': '#5b5f2a',
+            'text-outline-color': '#f2f5df'
             }
         },
 
         {
             selector: 'node[name = "Vout"], node[Vout]',
             style: {
-            'background-color': '#ffd166',
-            'border-color': '#f0a500',
-            'color': '#b7410e',
-            'text-outline-width': 3,
-            'text-outline-color': '#ffd166'
+            'background-color': '#e5f1d1',
+            'border-color': '#8aa25b',
+            'color': '#3c5221',
+            'text-outline-color': '#e5f1d1'
             }
         },
 
         {
             selector: 'edge',
             style: {
-            'width': 4,
+            'width': 3.5,
             'curve-style': 'unbundled-bezier',
             'target-arrow-shape': 'triangle',
-            'arrow-scale': 1.15,
-            'line-color': '#1f4f91',
+            'arrow-scale': 1.1,
+            'line-color': '#274f78',
             'line-cap': 'round',
-            'target-arrow-color': '#1f4f91',
+            'target-arrow-color': '#274f78',
             'content': 'data(weight)',
-            'font-size': 19,
-            'font-weight': 650,
+            'font-size': 22,
+            'font-weight': 700,
             'font-family': '"Segoe UI", "Nunito", sans-serif',
-            'color': '#0f2740',
-            'text-outline-width': 4,
-            'text-outline-color': '#ffffff',
+            'color': '#1c3a59',
+            'text-outline-width': 5,
+            'text-outline-color': '#f8fbfd',
             'text-background-opacity': 0,
             'text-wrap': 'wrap',
             'edge-text-rotation': 'autorotate'
