@@ -84,15 +84,37 @@ function getEdgeCurvature(edge) {
         y: dx / distance,
     };
 
-    const centroidDirection = {
-        x: centroid.x - midpoint.x,
-        y: centroid.y - midpoint.y,
+    const radial = {
+        x: midpoint.x - centroid.x,
+        y: midpoint.y - centroid.y,
     };
 
-    const orientation =
-        perpendicular.x * centroidDirection.x +
-        perpendicular.y * centroidDirection.y;
-    const direction = orientation >= 0 ? -1 : 1;
+    const radialLength = Math.hypot(radial.x, radial.y);
+    let direction = 1;
+
+    if (radialLength > 1e-3) {
+        const radialNormalized = {
+            x: radial.x / radialLength,
+            y: radial.y / radialLength,
+        };
+
+        const radialAlignment =
+            radialNormalized.x * perpendicular.x +
+            radialNormalized.y * perpendicular.y;
+
+        direction = radialAlignment >= 0 ? 1 : -1;
+    } else {
+        const centroidDirection = {
+            x: centroid.x - midpoint.x,
+            y: centroid.y - midpoint.y,
+        };
+
+        const orientation =
+            perpendicular.x * centroidDirection.x +
+            perpendicular.y * centroidDirection.y;
+
+        direction = orientation >= 0 ? -1 : 1;
+    }
 
     return {
         distance: curvatureMagnitude * closenessFactor * direction,
@@ -107,20 +129,6 @@ function updateEdgeCurvature(edge) {
             'loop-sweep': '320deg',
             'control-point-distance': MAX_CURVE_DISTANCE / 1.8,
             'control-point-weight': 0.65,
-        });
-        return;
-    }
-
-    const sourcePosition = edge.source().position();
-    const targetPosition = edge.target().position();
-    const dx = Math.abs(targetPosition.x - sourcePosition.x);
-    const dy = Math.abs(targetPosition.y - sourcePosition.y);
-    const isOnlyEdgeBetweenNodes = edge.source().edgesWith(edge.target()).length === 1;
-
-    if ((dx < 1 || dy < 1) && isOnlyEdgeBetweenNodes) {
-        edge.style({
-            'control-point-distance': 0,
-            'control-point-weight': 0.5,
         });
         return;
     }
@@ -249,13 +257,13 @@ function make_sfg(elements) {
             'border-color': '#1d5a9c',
             'border-width': 3,
             'shape': 'ellipse',
-            'width': 46,
-            'height': 46,
-            'font-size': 18,
-            'font-weight': 600,
+            'width': 50,
+            'height': 50,
+            'font-size': 22,
+            'font-weight': 650,
             'font-family': '"Segoe UI", "Nunito", sans-serif',
             'color': '#11314a',
-            'text-outline-width': 3,
+            'text-outline-width': 4,
             'text-outline-color': '#ffffff',
             'text-background-opacity': 0,
             'text-wrap': 'wrap',
@@ -298,11 +306,11 @@ function make_sfg(elements) {
             'line-cap': 'round',
             'target-arrow-color': '#1f4f91',
             'content': 'data(weight)',
-            'font-size': 16,
-            'font-weight': 600,
+            'font-size': 19,
+            'font-weight': 650,
             'font-family': '"Segoe UI", "Nunito", sans-serif',
             'color': '#0f2740',
-            'text-outline-width': 3,
+            'text-outline-width': 4,
             'text-outline-color': '#ffffff',
             'text-background-opacity': 0,
             'text-wrap': 'wrap',
