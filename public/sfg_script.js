@@ -8,6 +8,129 @@ let [highlight_mode, hlt_src, hlt_tgt] = [false, null, null];
 let stack_len = 0
 let redo_len = 0
 
+const MIN_CURVE_DISTANCE = 24;
+const MAX_CURVE_DISTANCE = 240;
+const CURVE_DISTANCE_SCALE = 0.35;
+const LABEL_VERTICAL_OFFSET = 18;
+const LABEL_HORIZONTAL_OFFSET = 12;
+
+function getGraphCentroid(cy) {
+    const bounds = cy.nodes().boundingBox();
+    return {
+        x: bounds.x1 + bounds.w / 2,
+        y: bounds.y1 + bounds.h / 2,
+    };
+}
+
+function updateNodeLabelPlacement(cy, node) {
+    const centroid = getGraphCentroid(cy);
+    const position = node.position();
+
+    const horizontalIsRight = position.x >= centroid.x;
+    const verticalIsBelow = position.y >= centroid.y;
+
+    node.style({
+        'text-halign': horizontalIsRight ? 'left' : 'right',
+        'text-valign': 'center',
+        'text-margin-x': horizontalIsRight ? LABEL_HORIZONTAL_OFFSET : -LABEL_HORIZONTAL_OFFSET,
+        'text-margin-y': verticalIsBelow ? LABEL_VERTICAL_OFFSET : -LABEL_VERTICAL_OFFSET,
+    });
+}
+
+function refreshAllNodeLabelPlacement(cy) {
+    cy.nodes().forEach((node) => updateNodeLabelPlacement(cy, node));
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+function getEdgeCurvature(edge) {
+    const sourcePosition = edge.source().position();
+    const targetPosition = edge.target().position();
+    const dx = targetPosition.x - sourcePosition.x;
+    const dy = targetPosition.y - sourcePosition.y;
+    const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+
+    const curvature = clamp(distance * CURVE_DISTANCE_SCALE, MIN_CURVE_DISTANCE, MAX_CURVE_DISTANCE);
+
+    // bias the curve so that the edge balloons away from the graph centre
+    const centroid = getGraphCentroid(edge.cy());
+    const midpoint = {
+        x: (sourcePosition.x + targetPosition.x) / 2,
+        y: (sourcePosition.y + targetPosition.y) / 2,
+    };
+    const directionX = midpoint.x >= centroid.x ? 1 : -1;
+    const directionY = midpoint.y >= centroid.y ? 1 : -1;
+
+    // favour vertical movement so long horizontal edges still balloon upwards
+    const direction = Math.abs(dx) > Math.abs(dy) ? -directionY : directionX;
+
+    return curvature * direction;
+}
+
+function updateEdgeCurvature(edge) {
+    if (edge.source().id() === edge.target().id()) {
+        edge.style({
+            'loop-direction': '-90deg',
+            'loop-sweep': '200deg',
+            'control-point-distance': MAX_CURVE_DISTANCE / 2,
+        });
+        return;
+    }
+
+    const sourcePosition = edge.source().position();
+    const targetPosition = edge.target().position();
+    const dx = Math.abs(targetPosition.x - sourcePosition.x);
+    const dy = Math.abs(targetPosition.y - sourcePosition.y);
+    const isOnlyEdgeBetweenNodes = edge.source().edgesWith(edge.target()).length === 1;
+
+    if ((dx < 1 || dy < 1) && isOnlyEdgeBetweenNodes) {
+        edge.style({
+            'control-point-distance': 0,
+            'control-point-weight': 0.5,
+        });
+        return;
+    }
+
+    const controlDistance = getEdgeCurvature(edge);
+    edge.style({
+        'control-point-distance': controlDistance,
+        'control-point-weight': 0.5,
+    });
+}
+
+function refreshConnectedEdges(edgeCollection) {
+    edgeCollection.forEach(updateEdgeCurvature);
+}
+
+function setupDynamicStyling(cy) {
+    refreshAllNodeLabelPlacement(cy);
+    refreshConnectedEdges(cy.edges());
+
+    cy.on('position', 'node', (event) => {
+        const movedNode = event.target;
+        updateNodeLabelPlacement(cy, movedNode);
+        refreshConnectedEdges(movedNode.connectedEdges());
+    });
+
+    cy.on('resize', () => {
+        refreshAllNodeLabelPlacement(cy);
+        refreshConnectedEdges(cy.edges());
+    });
+
+    cy.on('add', 'edge', (event) => {
+        const newEdge = event.target;
+        updateEdgeCurvature(newEdge);
+    });
+
+    cy.on('add', 'node', (event) => {
+        const newNode = event.target;
+        updateNodeLabelPlacement(cy, newNode);
+        refreshConnectedEdges(newNode.connectedEdges());
+    });
+}
+
 if (!circuitId) {
     window.location.replace('./landing.html');
 }
@@ -89,27 +212,58 @@ function make_sfg(elements) {
         {
             selector: 'node[name]',
             style: {
-            'content': 'data(name)'
+            'content': 'data(name)',
+            'background-color': '#f1faee',
+            'border-color': '#1d3557',
+            'border-width': 2,
+            'shape': 'round-rectangle',
+            'padding': '12px',
+            'font-size': 16,
+            'font-weight': 600,
+            'color': '#1d3557',
+            'text-background-color': '#ffffff',
+            'text-background-opacity': 0.85,
+            'text-background-padding': 6,
+            'text-background-shape': 'roundrectangle',
+            'text-wrap': 'wrap',
+            'text-max-width': '120px'
             }
         },
 
         {
             selector: 'node[Vin]',
             style: {
-            'background-color': 'red',
+            'background-color': '#e63946',
+            'border-color': '#e63946',
+            'color': '#ffffff',
+            'text-background-color': '#e63946',
+            'text-background-opacity': 0.95,
+            'text-background-padding': 6
             }
         },
 
         {
             selector: 'edge',
             style: {
+            'width': 3,
             'curve-style': 'unbundled-bezier',
-            'control-point-distance': '-40',
-            //'curve-style': 'bezier',
             'target-arrow-shape': 'triangle',
+            'arrow-scale': 1.2,
+            'line-color': '#457b9d',
+            'target-arrow-color': '#457b9d',
             'content': 'data(weight)',
-            'text-outline-width': '4',
-            'text-outline-color': '#E8E8E8'
+            'font-size': 14,
+            'font-weight': 500,
+            'color': '#1d3557',
+            'text-background-color': '#ffffff',
+            'text-background-opacity': 0.9,
+            'text-background-padding': 4,
+            'text-border-width': 1,
+            'text-border-color': '#457b9d',
+            'text-background-shape': 'roundrectangle',
+            'text-margin-y': -12,
+            'text-wrap': 'wrap',
+            'edge-text-rotation': 'autorotate'
             }
         },
 
@@ -237,13 +391,10 @@ function make_sfg(elements) {
         elements: elements
     });
 
-    //make lines straight
-    cy.edges().forEach((edge,idx) => {
-        if((edge.sourceEndpoint().x === edge.targetEndpoint().x) || (edge.sourceEndpoint().y === edge.targetEndpoint().y) && edge.source().edgesWith(edge.target()).length === 1) {
-            edge.css({'control-point-distance': '0'})
-        }
+    cy.autoungrabify(false);
+    cy.nodes().forEach((node) => node.grabbable(true));
 
-    });
+    setupDynamicStyling(cy);
 
     // log all nodes and edges of sfg
     console.log("nodes:", cy.nodes());
